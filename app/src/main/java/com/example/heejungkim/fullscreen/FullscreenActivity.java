@@ -2,6 +2,7 @@ package com.example.heejungkim.fullscreen;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -106,7 +107,11 @@ public class FullscreenActivity extends AppCompatActivity {
         WebView webview = (WebView) this.findViewById(R.id.webView);
         webview.setWebViewClient(new WebViewClient());
         webview.getSettings().setJavaScriptEnabled(true);
-        webview.loadUrl("http://m.sports.naver.com/video.nhn?id=356816");
+
+//        webview.loadUrl("http://m.sports.naver.com/video.nhn?id=356816");
+        Intent intent = getIntent();
+        String url = intent.getStringExtra("url");
+        webview.loadUrl(url);
 
         mVisible = true;
         mControlsView = findViewById(R.id.fullscreen_content_controls);
