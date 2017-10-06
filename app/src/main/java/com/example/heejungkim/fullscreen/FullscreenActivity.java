@@ -1,13 +1,18 @@
 package com.example.heejungkim.fullscreen;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Picture;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Environment;
 import android.support.v4.util.LruCache;
 import android.support.v7.app.ActionBar;
@@ -19,10 +24,15 @@ import android.view.View;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * An example full-screen activity that shows and hides the system UI (i.e.
@@ -99,20 +109,29 @@ public class FullscreenActivity extends AppCompatActivity {
         }
     };
 
+    WebView webview;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_fullscreen);
+        requestRuntimePermissions();
+        handler = new Handler();
+
         WebView webview = (WebView) this.findViewById(R.id.webView);
-        webview.setWebViewClient(new WebViewClient());
+        webview.enableSlowWholeDocumentDraw();
         webview.getSettings().setJavaScriptEnabled(true);
 
 //        webview.loadUrl("http://m.sports.naver.com/video.nhn?id=356816");
         Intent intent = getIntent();
         String url = intent.getStringExtra("url");
         webview.loadUrl(url);
-
+        webview.setWebViewClient(new WebViewClient() {
+            public void onPageFinished(WebView view, String url) {
+                startCapturWebView();
+            }
+        });
+        //webview.setWebViewClient(new WebViewClient());
         mVisible = true;
         mControlsView = findViewById(R.id.fullscreen_content_controls);
         mContentView = findViewById(R.id.fullscreen_content);
@@ -184,5 +203,152 @@ public class FullscreenActivity extends AppCompatActivity {
     private void delayedHide(int delayMillis) {
         mHideHandler.removeCallbacks(mHideRunnable);
         mHideHandler.postDelayed(mHideRunnable, delayMillis);
+    }
+
+    /* Start capturing web view repeatedly */
+    private int interval = 5000; // Repeat this task every 5 seconds.
+    private Handler handler;
+
+    Runnable captureWebView = new Runnable() {
+        @Override
+        public void run() {
+            webview.measure(View.MeasureSpec.makeMeasureSpec(
+                    View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+
+            webview.layout(0, 0, webview.getMeasuredWidth(), webview.getMeasuredHeight());
+
+            webview.setDrawingCacheEnabled(true);
+            webview.buildDrawingCache();
+            Bitmap bm = Bitmap.createBitmap(webview.getMeasuredWidth(),
+                    2500, Bitmap.Config.ARGB_8888);
+            /* Change magic number 2500 for your device */
+
+            Canvas bigcanvas = new Canvas(bm);
+            Paint paint = new Paint();
+            int iHeight = bm.getHeight();
+            bigcanvas.drawBitmap(bm, 0, iHeight, paint);
+            webview.draw(bigcanvas);
+
+            if (bm != null) {
+                try {
+                    String path = Environment.getExternalStorageDirectory()
+                            .toString();
+                    OutputStream fOut = null;
+                    File file = new File(path, "/capture.png");
+                    System.out.println(path);
+                    fOut = new FileOutputStream(file);
+
+                    bm.compress(Bitmap.CompressFormat.PNG, 50, fOut);
+                    fOut.flush();
+                    fOut.close();
+                    bm.recycle();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            handler.postDelayed(captureWebView, interval);
+        }
+    };
+
+    void startCapturWebView() {
+        captureWebView.run();
+    }
+
+    /* Add runtime permissions*/
+    final private int REQUEST_CODE_ASK_MULTIPLE_PERMISSIONS = 124;
+
+    private void requestRuntimePermissions() {
+        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            List<String> permissionsNeeded = new ArrayList<String>();
+
+            final List<String> permissionsList = new ArrayList<String>();
+            if (!addPermission(permissionsList, Manifest.permission.INTERNET))
+                permissionsNeeded.add("Internet.");
+            if (!addPermission(permissionsList, Manifest.permission.ACCESS_NETWORK_STATE))
+                permissionsNeeded.add("Internet Status.");
+            if (!addPermission(permissionsList, Manifest.permission.READ_EXTERNAL_STORAGE))
+                permissionsNeeded.add("Read Files.");
+            if (!addPermission(permissionsList, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                permissionsNeeded.add("Write Files.");
+
+            if (permissionsList.size() > 0) {
+                if (permissionsNeeded.size() > 0) {
+                    // Need Rationale
+                    String message = "You need to grant access to " + permissionsNeeded.get(0);
+                    for (int i = 1; i < permissionsNeeded.size(); i++)
+                        message = message + ", " + permissionsNeeded.get(i);
+                    showMessageOKCancel(message,
+                            new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        requestPermissions(permissionsList.toArray(new String[permissionsList.size()]),
+                                                REQUEST_CODE_ASK_MULTIPLE_PERMISSIONS);
+                                    }
+                                }
+                            });
+                    return;
+                }
+                requestPermissions(permissionsList.toArray(new String[permissionsList.size()]),
+                        REQUEST_CODE_ASK_MULTIPLE_PERMISSIONS);
+                return;
+            }
+        }
+        // startApp();
+
+    }
+
+    private boolean addPermission(List<String> permissionsList, String permission) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                permissionsList.add(permission);
+                // Check for Rationale Option
+                if (!shouldShowRequestPermissionRationale(permission))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    private void showMessageOKCancel(String message, DialogInterface.OnClickListener okListener) {
+        new AlertDialog.Builder(FullscreenActivity.this)
+                .setMessage(message)
+                .setPositiveButton("OK", okListener)
+                .setNegativeButton("Cancel", null)
+                .create()
+                .show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        switch (requestCode) {
+            case REQUEST_CODE_ASK_MULTIPLE_PERMISSIONS: {
+                Map<String, Integer> perms = new HashMap<String, Integer>();
+                // Initial
+                perms.put(Manifest.permission.INTERNET, PackageManager.PERMISSION_GRANTED);
+                perms.put(Manifest.permission.ACCESS_NETWORK_STATE, PackageManager.PERMISSION_GRANTED);
+                perms.put(Manifest.permission.READ_EXTERNAL_STORAGE, PackageManager.PERMISSION_GRANTED);
+                perms.put(Manifest.permission.WRITE_EXTERNAL_STORAGE, PackageManager.PERMISSION_GRANTED);
+                // Fill with results
+                for (int i = 0; i < permissions.length; i++)
+                    perms.put(permissions[i], grantResults[i]);
+                // Check for ACCESS_FINE_LOCATION
+                if (perms.get(Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
+                        && perms.get(Manifest.permission.ACCESS_NETWORK_STATE) == PackageManager.PERMISSION_GRANTED
+                        && perms.get(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                        && perms.get(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                    // All Permissions Granted
+                    //startApp();
+                } else {
+                    // Permission Denied
+                    Toast.makeText(FullscreenActivity.this, "Some Permission is Denied, please allow permission for that the app can work.", Toast.LENGTH_SHORT)
+                            .show();
+                }
+            }
+            break;
+            default:
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
     }
 }
